@@ -24,7 +24,10 @@ def import_certificates(certificatesPath):
     ], check_result=True)
 
     existing_keychains = run_executable_with_output('security', arguments=['list-keychains', '-d', 'user'])
-    existing_keychains.replace('"', '')
+    # The raw output is one quoted path per line; passing it as a single
+    # argument corrupts the keychain search list (breaks identity lookup in
+    # later codesign steps on CI runners). Split into individual paths.
+    existing_keychain_paths = [line.strip().strip('"') for line in existing_keychains.split('\n') if line.strip() and keychain_name not in line]
 
     run_executable_with_output('security', arguments=[
         'list-keychains',
@@ -32,7 +35,7 @@ def import_certificates(certificatesPath):
         'user',
         '-s',
         keychain_name,
-        existing_keychains
+        *existing_keychain_paths
     ], check_result=True)
 
     run_executable_with_output('security', arguments=['set-keychain-settings', keychain_name])

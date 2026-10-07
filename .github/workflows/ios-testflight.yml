@@ -128,6 +128,12 @@ jobs:
           CERTIFICATE_PASSWORD="$SIGNING_CERTIFICATE_PASSWORD" \
             python3 build-system/Make/ImportCertificates.py --path "$CODESIGNING_INFORMATION_PATH/certs"
 
+          # Belt and braces: make sure every keychain on the search list is
+          # unlocked (a locked keychain is silently skipped during identity
+          # lookup) and that the identity is actually visible.
+          security unlock-keychain "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null || true
+          security find-identity -v -p codesigning | grep -q "valid identities found"
+
           python3 -u build-system/Make/Make.py \
             --bazelUserRoot="$BAZEL_USER_ROOT" \
             build \
