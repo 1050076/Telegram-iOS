@@ -89,7 +89,13 @@ jobs:
           # collect dsym
           mkdir -p build/DSYMs
           find -L bazel-out -maxdepth 10 -path '*/bin/Telegram/*.dSYM' -type d 2>/dev/null | while read -r f; do
-            cp -R "$f" build/DSYMs/
+            name="$(basename "$f")"
+            if [ -e "build/DSYMs/$name" ]; then
+              continue
+            fi
+            rm -rf "build/DSYMs/$name"
+            cp -R "$f" "build/DSYMs/$name" || true
+            chmod -R u+w "build/DSYMs/$name" 2>/dev/null || true
           done
           if [ -d bazel-bin/Telegram/Telegram.app.dSYM ]; then
             cp -R bazel-bin/Telegram/Telegram.app.dSYM build/DSYMs/
