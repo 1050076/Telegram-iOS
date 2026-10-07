@@ -65,20 +65,40 @@ jobs:
             --configuration=release_arm64 \
             --buildNumber="$BUILD_NUMBER"
 
-          # collect ipa
+          # collect ipa (newer bazel layouts place it under bazel-bin/; fall back to a find)
           OUTPUT_PATH="build/artifacts"
           rm -rf "$OUTPUT_PATH"
           mkdir -p "$OUTPUT_PATH"
-          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
-            cp "$f" $OUTPUT_PATH/
+          IPA=""
+          for candidate in bazel-bin/Telegram/Telegram.ipa bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
+            for f in $candidate; do
+              if [ -f "$f" ]; then IPA="$f"; break 2; fi
+            done
           done
+          if [ -z "$IPA" ]; then
+            IPA="$(find -L bazel-out bazel-bin -maxdepth 8 -name 'Telegram.ipa' -type f 2>/dev/null | head -1 || true)"
+          fi
+          if [ -z "$IPA" ]; then
+            echo "Telegram.ipa not found anywhere under bazel-out/bazel-bin" >&2
+            find -L bazel-out -maxdepth 6 -name 'Telegram.app' -type d | head -5
+            exit 1
+          fi
+          echo "IPA at: $IPA"
+          cp "$IPA" $OUTPUT_PATH/
 
           # collect dsym
           mkdir -p build/DSYMs
-          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/*.dSYM; do
+          find -L bazel-out -maxdepth 10 -path '*/bin/Telegram/*.dSYM' -type d 2>/dev/null | while read -r f; do
             cp -R "$f" build/DSYMs/
           done
-          zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
+          if [ -d bazel-bin/Telegram/Telegram.app.dSYM ]; then
+            cp -R bazel-bin/Telegram/Telegram.app.dSYM build/DSYMs/
+          fi
+          if [ -z "$(ls -A build/DSYMs 2>/dev/null)" ]; then
+            echo "no dSYMs found (continuing without them)"
+          else
+            zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
+          fi
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
