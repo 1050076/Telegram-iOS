@@ -39,20 +39,34 @@ def import_certificates(certificatesPath):
     run_executable_with_output('security', arguments=['unlock-keychain', '-p', keychain_password, keychain_name])
 
     for file_name in os.listdir(certificatesPath):
-        file_path = certificatesPath + '/' + file_name
-        if file_path.endswith('.p12') or file_path.endswith('.cer'):
-            run_executable_with_output('security', arguments=[
-                'import',
-                file_path,
-                '-k',
-                keychain_name,
-                '-P',
-                '',
-                '-T',
-                '/usr/bin/codesign',
-                '-T',
-                '/usr/bin/security'
-            ], check_result=False)
+            file_path = certificatesPath + '/' + file_name
+            if file_name.endswith('.p12'):
+                certificate_password = os.environ.get('CERTIFICATE_PASSWORD', '')
+                run_executable_with_output('security', arguments=[
+                    'import',
+                    file_path,
+                    '-k',
+                    keychain_name,
+                    '-P',
+                    certificate_password,
+                    '-T',
+                    '/usr/bin/codesign',
+                    '-T',
+                    '/usr/bin/security'
+                ], check_result=False)
+            elif file_name.endswith('.cer'):
+                run_executable_with_output('security', arguments=[
+                    'import',
+                    file_path,
+                    '-k',
+                    keychain_name,
+                    '-P',
+                    '',
+                    '-T',
+                    '/usr/bin/codesign',
+                    '-T',
+                    '/usr/bin/security'
+                ], check_result=False)
 
     run_executable_with_output('security', arguments=[
         'import',

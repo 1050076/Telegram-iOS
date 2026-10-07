@@ -68,7 +68,7 @@ jobs:
           openssl pkey -in "$key_path" -noout -check >/dev/null
           echo "ASC_KEY_PATH=$key_path" >> "$GITHUB_ENV"
 
-      - name: Import distribution certificate
+      - name: Stage signing certificate file
         env:
           SIGNING_CERTIFICATE_P12: ${{ secrets.IOS_SIGNING_CERTIFICATE_P12 }}
           SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.IOS_SIGNING_CERTIFICATE_PASSWORD }}
@@ -76,29 +76,9 @@ jobs:
           set -euo pipefail
           : "${SIGNING_CERTIFICATE_P12:?missing IOS_SIGNING_CERTIFICATE_P12}"
           : "${SIGNING_CERTIFICATE_PASSWORD:?missing IOS_SIGNING_CERTIFICATE_PASSWORD}"
-          signing_keychain="$RUNNER_TEMP/telegram-signing.keychain-db"
           signing_p12="$RUNNER_TEMP/telegram-signing.p12"
-          keychain_password="$(openssl rand -hex 32)"
           printf '%s' "$SIGNING_CERTIFICATE_P12" | base64 --decode > "$signing_p12"
-          security create-keychain -p "$keychain_password" "$signing_keychain"
-          security set-keychain-settings -lut 21600 "$signing_keychain"
-          security unlock-keychain -p "$keychain_password" "$signing_keychain"
-          security import "$signing_p12" \
-            -k "$signing_keychain" \
-            -P "$SIGNING_CERTIFICATE_PASSWORD" \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security
-          security set-key-partition-list \
-            -S apple-tool:,apple: \
-            -s \
-            -k "$keychain_password" \
-            "$signing_keychain" >/dev/null
-          security list-keychains -d user -s "$signing_keychain"
-          security find-identity -v -p codesigning "$signing_keychain" | grep -q 'valid identities found'
-          {
-            echo "CI_SIGNING_KEYCHAIN=$signing_keychain"
-            echo "CI_SIGNING_P12=$signing_p12"
-          } >> "$GITHUB_ENV"
+          echo "CI_SIGNING_P12=$signing_p12" >> "$GITHUB_ENV"
 
       - name: Assemble codesigning information directory
         env:
@@ -139,6 +119,13 @@ jobs:
           export BUILD_NUMBER="$COMMIT_COUNT"
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+
+          # Import the distribution certificate into a keychain that codesign's
+          # default search path sees (mirrors upstream CI's use of
+          # ImportCertificates.py: creates temp.keychain, imports p12 + WWDR,
+          # and puts it on the user keychain search list).
+          CERTIFICATE_PASSWORD="$SIGNING_CERTIFICATE_PASSWORD" \
+            python3 build-system/Make/ImportCertificates.py --path "$CODESIGNING_INFORMATION_PATH/certs"
 
           python3 -u build-system/Make/Make.py \
             --bazelUserRoot="$BAZEL_USER_ROOT" \
@@ -218,6 +205,6 @@ jobs:
         run: |
           set -euo pipefail
           [ -n "${ASC_KEY_PATH:-}" ] && rm -f "$ASC_KEY_PATH" || true
-          [ -n "${CI_SIGNING_KEYCHAIN:-}" ] && security delete-keychain "$CI_SIGNING_KEYCHAIN" || true
           [ -n "${CI_SIGNING_P12:-}" ] && rm -f "$CI_SIGNING_P12" || true
+          security delete-keychain temp.keychain 2>/dev/null || true
           exit 0
