@@ -18,6 +18,7 @@ env:
   ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
   ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
   IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+  SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.IOS_SIGNING_CERTIFICATE_PASSWORD }}
 
 jobs:
   testflight:
