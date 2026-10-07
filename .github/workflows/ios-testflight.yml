@@ -1,0 +1,223 @@
+name: ios-testflight
+
+# Signed Telegram (calculator-front) build -> App Store Connect -> TestFlight.
+# Mirrors the proven cloudphone-ios testflight pipeline, adapted to this
+# repo's Bazel/Make.py build with --codesigningInformationPath.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-ios-testflight
+  cancel-in-progress: false
+
+env:
+  ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+  ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+  IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+
+jobs:
+  testflight:
+    name: Build, sign, upload, distribute
+    runs-on: macos-26
+    timeout-minutes: 300
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+          fetch-depth: '0'
+
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /Library/Android /usr/local/lib/android /usr/local/share/chromium /usr/local/share/edge_driver 2>/dev/null || true
+          sudo rm -rf /Users/runner/Library/Android 2>/dev/null || true
+          df -h /
+
+      - name: Set active Xcode path
+        run: |
+          XCODE_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["xcode"]);')
+          sudo xcode-select -s /Applications/Xcode_$XCODE_VERSION.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Create canonical source directory
+        run: |
+          set -x
+          sudo mkdir -p /Users/Shared
+          cp -R $GITHUB_WORKSPACE /Users/Shared/
+          mv /Users/Shared/$(basename $GITHUB_WORKSPACE) /Users/Shared/telegram-ios
+
+      - name: Prepare App Store Connect credential
+        env:
+          PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          : "${PRIVATE_KEY:?missing ASC_PRIVATE_KEY}"
+          : "${ASC_KEY_ID:?missing ASC_KEY_ID}"
+          : "${ASC_ISSUER_ID:?missing ASC_ISSUER_ID}"
+          key_directory="$RUNNER_TEMP/app-store-connect"
+          key_path="$key_directory/AuthKey_${ASC_KEY_ID}.p8"
+          mkdir -p "$key_directory"
+          chmod 700 "$key_directory"
+          umask 077
+          printf '%s' "$PRIVATE_KEY" > "$key_path"
+          openssl pkey -in "$key_path" -noout -check >/dev/null
+          echo "ASC_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
+      - name: Import distribution certificate
+        env:
+          SIGNING_CERTIFICATE_P12: ${{ secrets.IOS_SIGNING_CERTIFICATE_P12 }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.IOS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${SIGNING_CERTIFICATE_P12:?missing IOS_SIGNING_CERTIFICATE_P12}"
+          : "${SIGNING_CERTIFICATE_PASSWORD:?missing IOS_SIGNING_CERTIFICATE_PASSWORD}"
+          signing_keychain="$RUNNER_TEMP/telegram-signing.keychain-db"
+          signing_p12="$RUNNER_TEMP/telegram-signing.p12"
+          keychain_password="$(openssl rand -hex 32)"
+          printf '%s' "$SIGNING_CERTIFICATE_P12" | base64 --decode > "$signing_p12"
+          security create-keychain -p "$keychain_password" "$signing_keychain"
+          security set-keychain-settings -lut 21600 "$signing_keychain"
+          security unlock-keychain -p "$keychain_password" "$signing_keychain"
+          security import "$signing_p12" \
+            -k "$signing_keychain" \
+            -P "$SIGNING_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$keychain_password" \
+            "$signing_keychain" >/dev/null
+          security list-keychains -d user -s "$signing_keychain"
+          security find-identity -v -p codesigning "$signing_keychain" | grep -q 'valid identities found'
+          {
+            echo "CI_SIGNING_KEYCHAIN=$signing_keychain"
+            echo "CI_SIGNING_P12=$signing_p12"
+          } >> "$GITHUB_ENV"
+
+      - name: Assemble codesigning information directory
+        env:
+          PROFILES_ARCHIVE: ${{ secrets.IOS_PROVISIONING_PROFILES_BASE64 }}
+        run: |
+          set -euo pipefail
+          : "${PROFILES_ARCHIVE:?missing IOS_PROVISIONING_PROFILES_BASE64}"
+          # Make.py --codesigningInformationPath expects:
+          #   <dir>/certs/   (p12 + cer)
+          #   <dir>/profiles/ (Telegram.mobileprovision, Share.mobileprovision, ...)
+          csdir="$RUNNER_TEMP/codesigning"
+          mkdir -p "$csdir/certs" "$csdir/profiles"
+          # profiles archive: a tar.gz whose entries are named
+          # Telegram/Share/NotificationContent/NotificationService/Intents/Widget/BroadcastUpload
+          printf '%s' "$PROFILES_ARCHIVE" | base64 --decode > "$RUNNER_TEMP/profiles.tar.gz"
+          tar -xzf "$RUNNER_TEMP/profiles.tar.gz" -C "$csdir/profiles"
+          ls "$csdir/profiles"
+          # p12 (password in the IOS_SIGNING_CERTIFICATE_PASSWORD secret)
+          cp "$CI_SIGNING_P12" "$csdir/certs/distribution.p12"
+          # Apple WWDR CA cert (intermediate required at codesign time)
+          curl -sL -o "$csdir/certs/AppleWWDRCAG3.cer" \
+            https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer
+          echo "CODESIGNING_INFORMATION_PATH=$csdir" >> "$GITHUB_ENV"
+
+      - name: Build the App
+        run: |
+          set -x
+
+          SOURCE_DIR=/Users/Shared/telegram-ios
+          BAZEL_USER_ROOT="/private/var/tmp/_bazel_containerhost"
+
+          cd $SOURCE_DIR
+
+          BUILD_NUMBER_OFFSET="$(cat build_number_offset)"
+          export APP_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["app"]);')
+          export COMMIT_COUNT=$(git rev-list --count HEAD)
+          export COMMIT_COUNT="$(($COMMIT_COUNT+$BUILD_NUMBER_OFFSET))"
+          export BUILD_NUMBER="$COMMIT_COUNT"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+
+          python3 -u build-system/Make/Make.py \
+            --bazelUserRoot="$BAZEL_USER_ROOT" \
+            build \
+            --configurationPath="build-system/appstore-configuration.json" \
+            --codesigningInformationPath="$CODESIGNING_INFORMATION_PATH" \
+            --configuration=release_arm64 \
+            --buildNumber="$BUILD_NUMBER"
+
+          # collect ipa
+          OUTPUT_PATH="build/artifacts"
+          rm -rf "$OUTPUT_PATH"
+          mkdir -p "$OUTPUT_PATH"
+          IPA=""
+          for candidate in bazel-bin/Telegram/Telegram.ipa bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
+            for f in $candidate; do
+              if [ -f "$f" ]; then IPA="$f"; break 2; fi
+            done
+          done
+          if [ -z "$IPA" ]; then
+            IPA="$(find -L bazel-out bazel-bin -maxdepth 8 -name 'Telegram.ipa' -type f 2>/dev/null | head -1 || true)"
+          fi
+          if [ -z "$IPA" ]; then
+            echo "Telegram.ipa not found" >&2
+            exit 1
+          fi
+          echo "IPA at: $IPA"
+          cp "$IPA" $OUTPUT_PATH/
+          echo "IPA_PATH=$SOURCE_DIR/$OUTPUT_PATH/Telegram.ipa" >> $GITHUB_ENV
+
+      - name: Verify signature before upload
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/verify" && mkdir -p "$RUNNER_TEMP/verify"
+          unzip -q "$IPA_PATH" -d "$RUNNER_TEMP/verify"
+          app="$RUNNER_TEMP/verify/Payload/Telegram.app"
+          team="$(/usr/bin/codesign -dv --verbose=4 "$app" 2>&1 | awk -F= '/^TeamIdentifier=/ { print $2 }')"
+          [ "$team" = "$IOS_TEAM_ID" ] || { echo "::error::signed by '$team', expected $IOS_TEAM_ID"; exit 1; }
+          bundle="$(plutil -extract CFBundleIdentifier raw "$app/Info.plist")"
+          echo "✓ signed by team $team: $bundle"
+
+      - name: Upload to App Store Connect
+        run: |
+          set -euo pipefail
+          key_directory="$(dirname "$ASC_KEY_PATH")"
+          if API_PRIVATE_KEYS_DIR="$key_directory" \
+            xcrun altool --upload-app --type ios --file "$IPA_PATH" \
+              --apiKey "$ASC_KEY_ID" \
+              --apiIssuer "$ASC_ISSUER_ID" \
+              --output-format json; then
+            echo "✓ uploaded"
+          else
+            echo "::warning::altool --upload-app failed; retrying with --upload-package/--api-key"
+            API_PRIVATE_KEYS_DIR="$key_directory" \
+              xcrun altool --upload-package "$IPA_PATH" \
+              --api-key "$ASC_KEY_ID" \
+              --api-issuer "$ASC_ISSUER_ID" \
+              --wait \
+              --output-format json
+            echo "✓ uploaded (fallback)"
+          fi
+
+      - name: Add TestFlight internal testers note
+        run: |
+          echo "Build $BUILD_NUMBER (v$APP_VERSION) uploaded. Enable it for internal testing in App Store Connect → TestFlight."
+
+      - name: Retain signed IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-signed-ipa
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Remove temporary credentials
+        if: always()
+        run: |
+          set -euo pipefail
+          [ -n "${ASC_KEY_PATH:-}" ] && rm -f "$ASC_KEY_PATH" || true
+          [ -n "${CI_SIGNING_KEYCHAIN:-}" ] && security delete-keychain "$CI_SIGNING_KEYCHAIN" || true
+          [ -n "${CI_SIGNING_P12:-}" ] && rm -f "$CI_SIGNING_P12" || true
+          exit 0
