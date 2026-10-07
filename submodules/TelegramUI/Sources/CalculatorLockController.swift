@@ -39,6 +39,40 @@ final class CalculatorLockController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         self.buildUI()
+        
+        // The Telegram UI underneath may auto-focus its own text fields on launch
+        // (phone-number entry, search bar); their keyboard would then cover this
+        // lock screen even though it is on a higher window. Claim the first
+        // responder for ourselves (we have no text input, so no keyboard shows)
+        // and re-claim it whenever some other field tries to raise the keyboard.
+        NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardWillShow), name: UIResponder.keyboardWillShowNotification, object: nil)
+    }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        self.claimFirstResponder()
+    }
+    
+    override var canBecomeFirstResponder: Bool {
+        return true
+    }
+    
+    private func claimFirstResponder() {
+        // Resign whatever text field under the lock window currently holds focus,
+        // then take the first responder role so the keyboard stays hidden.
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        self.becomeFirstResponder()
+    }
+    
+    @objc private func keyboardWillShow() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.view.window != nil else {
+                return
+            }
+            if !self.isFirstResponder {
+                self.claimFirstResponder()
+            }
+        }
     }
     
     override var preferredStatusBarStyle: UIStatusBarStyle {
