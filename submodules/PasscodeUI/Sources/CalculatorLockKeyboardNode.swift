@@ -295,9 +295,15 @@ final class CalculatorLockKeyboardNode: ASDisplayNode {
         }
     }
     
+    func resetDisplay() {
+        // Silent reset to zero - used on both wrong passcode and unlock, so
+        // the calculator looks exactly like a stock one in every case.
+        self.allClear()
+    }
+    
     func flashError() {
-        // On a wrong passcode the calculator display briefly flashes red,
-        // then resets to zero like a cleared calculator.
+        // Reserved for modal presentations; the calculator frontend stays
+        // visually neutral on wrong passcodes (see resetDisplay()).
         let previous = self.displayNode.backgroundColor
         self.displayNode.backgroundColor = UIColor(rgb: 0xff453a, alpha: 0.55)
         DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 0.35, execute: { [weak self] in

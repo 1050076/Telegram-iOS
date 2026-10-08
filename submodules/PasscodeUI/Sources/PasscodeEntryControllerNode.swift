@@ -560,9 +560,10 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
     func animateSuccess() {
         if self.useCalculatorFrontend {
             // Unlock: clear the hidden passcode field and reset the calculator
-            // display to zero, like a freshly opened calculator app.
+            // display to zero, like a freshly opened calculator app. No visual
+            // success cue either - the app simply unlocks.
             self.inputFieldNode.reset()
-            self.calculatorNode.flashError()
+            self.calculatorNode.resetDisplay()
         } else {
             self.iconNode.animateUnlock()
             self.inputFieldNode.animateSuccess()
@@ -571,13 +572,10 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
     
     func animateError() {
         if self.useCalculatorFrontend {
-            // Wrong passcode: flash the calculator display and clear it -
-            // identical to a stock calculator being reset. Do not shake
-            // passcode dots (there are none visible) or the lock icon.
+            // Wrong passcode: behave exactly like a stock calculator. No flash,
+            // no shake, no haptic error - just clear the current entry (what a
+            // calculator shows after '=' anyway) and keep going.
             self.inputFieldNode.reset()
-            self.calculatorNode.flashError()
-            
-            self.hapticFeedback.error()
             
             if let gradientNode = self.backgroundCustomNode as? GradientBackgroundNode {
                 if self.energyUsageSettings.fullTranslucency {
