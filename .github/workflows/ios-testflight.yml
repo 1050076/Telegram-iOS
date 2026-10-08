@@ -200,6 +200,7 @@ jobs:
           echo "Build $BUILD_NUMBER (v$APP_VERSION) uploaded. Enable it for internal testing in App Store Connect → TestFlight."
 
       - name: Retain signed IPA
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: telegram-signed-ipa
