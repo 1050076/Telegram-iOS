@@ -5,66 +5,6 @@
       "idiom": "universal",
       "platform": "ios",
       "size": "1024x1024"
-    },
-    {
-      "filename": "icon-167",
-      "idiom": "ipad",
-      "platform": "ios",
-      "size": "167x167"
-    },
-    {
-      "filename": "icon-152",
-      "idiom": "ipad",
-      "platform": "ios",
-      "size": "152x152"
-    },
-    {
-      "filename": "icon-120",
-      "idiom": "ipad",
-      "platform": "ios",
-      "size": "120x120"
-    },
-    {
-      "filename": "icon-80",
-      "idiom": "ipad",
-      "platform": "ios",
-      "size": "80x80"
-    },
-    {
-      "filename": "icon-76",
-      "idiom": "ipad",
-      "platform": "ios",
-      "size": "76x76"
-    },
-    {
-      "filename": "icon-64",
-      "idiom": "ipad",
-      "platform": "ios",
-      "size": "64x64"
-    },
-    {
-      "filename": "icon-58",
-      "idiom": "ipad",
-      "platform": "ios",
-      "size": "58x58"
-    },
-    {
-      "filename": "icon-40",
-      "idiom": "ipad",
-      "platform": "ios",
-      "size": "40x40"
-    },
-    {
-      "filename": "icon-29",
-      "idiom": "ipad",
-      "platform": "ios",
-      "size": "29x29"
-    },
-    {
-      "filename": "icon-20",
-      "idiom": "ipad",
-      "platform": "ios",
-      "size": "20x20"
     }
   ],
   "info": {
