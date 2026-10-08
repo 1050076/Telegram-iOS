@@ -31,7 +31,7 @@ final class CalculatorLockKeyboardNode: ASDisplayNode {
     
     private var validSize: CGSize?
     
-    init() {
+    override init() {
         self.displayNode = ASDisplayNode()
         self.displayNode.cornerRadius = 20.0
         self.displayNode.clipsToBounds = true
