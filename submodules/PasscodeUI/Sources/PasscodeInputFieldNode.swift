@@ -145,6 +145,10 @@ public final class PasscodeInputFieldNode: ASDisplayNode, UITextFieldDelegate {
     private var validLayout: (CGSize, CGFloat)?
     
     public var complete: ((String) -> Void)?
+    /// When false (calculator frontend), reaching the field's max length does
+    /// NOT auto-trigger `complete`; the caller submits explicitly via
+    /// `submitNow()`. The calculator's `=` key is the submit action.
+    public var autoComplete: Bool = true
     
     public var text: String {
         return self.textFieldNode.textField.text ?? ""
@@ -272,11 +276,19 @@ public final class PasscodeInputFieldNode: ASDisplayNode, UITextFieldDelegate {
         text = self.textFieldNode.textField.text ?? "" + string
         self.updateDots(count: text.count, animated: false)
         
-        if let maxLength = maxLength, text.count == maxLength {
+        if let maxLength = maxLength, text.count == maxLength, self.autoComplete {
             Queue.mainQueue().after(0.2) {
                 self.complete?(text)
             }
         }
+    }
+    
+    /// Explicit submission for non-auto-completing callers (calculator
+    /// frontend): hands the currently accumulated passcode text to `complete`
+    /// regardless of whether the field is full, then clears it.
+    public func submitNow() {
+        let text = self.textFieldNode.textField.text ?? ""
+        self.complete?(text)
     }
     
     func delete() -> Bool {

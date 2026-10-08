@@ -414,9 +414,6 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         self.window = window
         self.nativeWindow = window
         
-        // Calculator frontend: mask the app immediately at launch, before any Telegram UI shows.
-        CalculatorLock.shared.lock(animated: false)
-        
         hostView.containerView.layer.addSublayer(MetalEngine.shared.rootLayer)
         
         if !UIDevice.current.isBatteryMonitoringEnabled {
@@ -1954,9 +1951,6 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         self.isInForegroundPromise.set(false)
         self.isActiveValue = false
         self.isActivePromise.set(false)
-        
-        // Calculator frontend: re-mask the app as soon as it leaves the foreground.
-        CalculatorLock.shared.lock(animated: false)
         
         final class TaskIdHolder {
             var taskId: UIBackgroundTaskIdentifier?
