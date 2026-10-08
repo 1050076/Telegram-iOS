@@ -36,31 +36,30 @@ final class CalculatorFrontendView: UIView, UITextFieldDelegate {
         fatalError("init(coder:) has not been implemented")
     }
     
+    private let keypadLayout: [[(String, String)]] = [
+        [("AC", "func"), ("±", "func"), ("%", "func"), ("÷", "op")],
+        [("7", "num"), ("8", "num"), ("9", "num"), ("×", "op")],
+        [("4", "num"), ("5", "num"), ("6", "num"), ("−", "op")],
+        [("1", "num"), ("2", "num"), ("3", "num"), ("+", "op")],
+        [("0", "num"), (".", "num"), ("=", "op")],
+    ]
+    
     private func buildUI() {
-        let layout: [[(String, String)]] = [
-            [("AC", "func"), ("±", "func"), ("%", "func"), ("÷", "op")],
-            [("7", "num"), ("8", "num"), ("9", "num"), ("×", "op")],
-            [("4", "num"), ("5", "num"), ("6", "num"), ("−", "op")],
-            [("1", "num"), ("2", "num"), ("3", "num"), ("+", "op")],
-            [("0", "num"), (".", "num"), ("=", "op")],
-        ]
-        
         self.displayLabel.text = "0"
         self.displayLabel.textColor = .white
         self.displayLabel.font = self.displayFont
         self.displayLabel.textAlignment = .right
         self.displayLabel.adjustsFontSizeToFitWidth = true
         self.displayLabel.minimumScaleFactor = 0.25
-        self.displayLabel.translatesAutoresizingMaskIntoConstraints = false
         self.addSubview(self.displayLabel)
         
         var rows: [UIStackView] = []
-        for row in layout {
+        for row in self.keypadLayout {
             let rowView = UIStackView()
             rowView.axis = .horizontal
             rowView.distribution = .fillEqually
             rowView.spacing = 12.0
-            rowView.translatesAutoresizingMaskIntoConstraints = false
+
             for (label, kind) in row {
                 let button = self.makeButton(label: label, kind: kind)
                 rowView.addArrangedSubview(button)
@@ -73,24 +72,40 @@ final class CalculatorFrontendView: UIView, UITextFieldDelegate {
         grid.axis = .vertical
         grid.spacing = 12.0
         grid.distribution = .fillEqually
-        grid.translatesAutoresizingMaskIntoConstraints = false
+
         for row in rows {
             grid.addArrangedSubview(row)
         }
         self.addSubview(grid)
+        self.grid = grid
+    }
+    
+    private var grid: UIStackView?
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
         
-        NSLayoutConstraint.activate([
-            self.displayLabel.topAnchor.constraint(equalTo: self.safeAreaLayoutGuide.topAnchor, constant: 24.0),
-            self.displayLabel.leadingAnchor.constraint(equalTo: self.leadingAnchor, constant: 24.0),
-            self.displayLabel.trailingAnchor.constraint(equalTo: self.trailingAnchor, constant: -24.0),
-            self.displayLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 72.0),
-            
-            grid.topAnchor.constraint(equalTo: self.displayLabel.bottomAnchor, constant: 12.0),
-            grid.leadingAnchor.constraint(equalTo: self.leadingAnchor, constant: 16.0),
-            grid.trailingAnchor.constraint(equalTo: self.trailingAnchor, constant: -16.0),
-            grid.bottomAnchor.constraint(equalTo: self.safeAreaLayoutGuide.bottomAnchor, constant: -16.0),
-            grid.heightAnchor.constraint(greaterThanOrEqualTo: self.heightAnchor, multiplier: 0.55),
-        ])
+        // Standard calculator structure, filling the whole screen:
+        // - flexible display area on top (grows with the screen)
+        // - equal-height button rows sharing everything below it
+        let safe = self.safeAreaInsets
+        let side: CGFloat = 12.0
+        let spacing: CGFloat = 12.0
+        
+        let displayTop = safe.top + 24.0
+        let gridBottom = self.bounds.height - safe.bottom - side
+        let rowsCount: CGFloat = 5.0
+        // Each button row aims for a square-ish key; the grid takes all the
+        // vertical room it needs and the display absorbs the remainder - so on
+        // any device the calculator fills the screen edge to edge.
+        let availableForGrid = self.bounds.height - displayTop - gridBottom
+        let rowHeight = floor((availableForGrid - spacing * (rowsCount - 1.0)) / rowsCount)
+        
+        let displayFrame = CGRect(x: side, y: displayTop, width: self.bounds.width - side * 2.0, height: max(64.0, availableForGrid - (rowHeight * rowsCount + spacing * (rowsCount - 1.0))))
+        self.displayLabel.frame = displayFrame
+        
+        let gridSize = CGSize(width: self.bounds.width - side * 2.0, height: rowHeight * rowsCount + spacing * (rowsCount - 1.0))
+        self.grid?.frame = CGRect(x: side, y: displayFrame.maxY, width: gridSize.width, height: gridSize.height)
     }
     
     private func makeButton(label: String, kind: String) -> UIButton {
@@ -110,8 +125,7 @@ final class CalculatorFrontendView: UIView, UITextFieldDelegate {
         }
         button.layer.cornerRadius = 40.0
         button.clipsToBounds = true
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.heightAnchor.constraint(equalToConstant: 72.0).priority = .defaultHigh
+
         button.addTarget(self, action: #selector(self.buttonPressed(_:)), for: .touchUpInside)
         return button
     }
