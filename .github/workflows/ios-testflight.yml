@@ -178,12 +178,18 @@ jobs:
         run: |
           set -euo pipefail
           key_directory="$(dirname "$ASC_KEY_PATH")"
+          # The documented --upload-app/--apiKey pair is tried first because it
+          # authenticates on every Xcode we have seen. The hyphenated
+          # --upload-package/--api-key form is the one known to work on Xcode 26,
+          # kept as a fallback. Exit codes propagate: a failed upload FAILS the
+          # job (an earlier version masked network failures with a stray echo,
+          # reporting a successful upload that never reached ASC).
           if API_PRIVATE_KEYS_DIR="$key_directory" \
             xcrun altool --upload-app --type ios --file "$IPA_PATH" \
               --apiKey "$ASC_KEY_ID" \
               --apiIssuer "$ASC_ISSUER_ID" \
               --output-format json; then
-            echo "✓ uploaded"
+            echo "✓ uploaded with --upload-app/--apiKey"
           else
             echo "::warning::altool --upload-app failed; retrying with --upload-package/--api-key"
             API_PRIVATE_KEYS_DIR="$key_directory" \
@@ -192,7 +198,7 @@ jobs:
               --api-issuer "$ASC_ISSUER_ID" \
               --wait \
               --output-format json
-            echo "✓ uploaded (fallback)"
+            echo "✓ uploaded with --upload-package/--api-key"
           fi
 
       - name: Add TestFlight internal testers note
