@@ -1,14 +1,26 @@
 {
-  "images" : [
+  "images": [
     {
-      "filename" : "icon-1024.png",
-      "idiom" : "universal",
-      "platform" : "ios",
-      "size" : "1024x1024"
+      "filename": "icon-1024.png",
+      "idiom": "universal",
+      "platform": "ios",
+      "size": "1024x1024"
+    },
+    {
+      "filename": "icon-167.png",
+      "idiom": "ipad",
+      "platform": "ios",
+      "size": "167x167"
+    },
+    {
+      "filename": "icon-152.png",
+      "idiom": "ipad",
+      "platform": "ios",
+      "size": "152x152"
     }
   ],
-  "info" : {
-    "author" : "xcode",
-    "version" : 1
+  "info": {
+    "author": "xcode",
+    "version": 1
   }
 }
