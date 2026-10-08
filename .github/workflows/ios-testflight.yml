@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  actions: read  # bazel remote cache (manifest discovery for cache-v2)
 
 concurrency:
   group: telegram-ios-testflight
@@ -38,6 +39,17 @@ jobs:
           sudo rm -rf /Library/Android /usr/local/lib/android /usr/local/share/chromium /usr/local/share/edge_driver 2>/dev/null || true
           sudo rm -rf /Users/runner/Library/Android 2>/dev/null || true
           df -h /
+
+      # Bazel HTTP remote cache persisted in GitHub Actions cache (v2 runner
+      # service). Loopback-only server; entries survive across runs, so
+      # unchanged actions compile once and hit the cache afterwards.
+      - name: Start bazel remote cache
+        id: bazel-cache
+        uses: cre4ture/bazel-github-actions-cache-v2@2bc512d6a198bbc46cd427435a9241b1ef4c6115
+        with:
+          write: true
+          storage-mode: packs
+          key-prefix: telegram-ios-bazel-v1
 
       - name: Set active Xcode path
         run: |
@@ -105,6 +117,8 @@ jobs:
           echo "CODESIGNING_INFORMATION_PATH=$csdir" >> "$GITHUB_ENV"
 
       - name: Build the App
+        env:
+          BAZEL_CACHE_URL: ${{ steps.bazel-cache.outputs.url }}
         run: |
           set -x
 
@@ -139,6 +153,7 @@ jobs:
             build \
             --configurationPath="build-system/appstore-configuration.json" \
             --codesigningInformationPath="$CODESIGNING_INFORMATION_PATH" \
+            --cacheHost="$BAZEL_CACHE_URL" \
             --configuration=release_arm64 \
             --buildNumber="$BUILD_NUMBER"
 
