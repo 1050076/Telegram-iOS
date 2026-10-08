@@ -51,6 +51,7 @@ final class CalculatorFrontendView: UIView, UITextFieldDelegate {
         self.displayLabel.textAlignment = .right
         self.displayLabel.adjustsFontSizeToFitWidth = true
         self.displayLabel.minimumScaleFactor = 0.25
+        self.displayLabel.translatesAutoresizingMaskIntoConstraints = false
         self.addSubview(self.displayLabel)
         
         var rows: [UIStackView] = []
@@ -76,36 +77,40 @@ final class CalculatorFrontendView: UIView, UITextFieldDelegate {
         for row in rows {
             grid.addArrangedSubview(row)
         }
+        grid.translatesAutoresizingMaskIntoConstraints = false
         self.addSubview(grid)
-        self.grid = grid
-    }
-    
-    private var grid: UIStackView?
-    
-    override func layoutSubviews() {
-        super.layoutSubviews()
         
-        // Standard calculator structure, filling the whole screen:
-        // - flexible display area on top (grows with the screen)
-        // - equal-height button rows sharing everything below it
-        let safe = self.safeAreaInsets
-        let side: CGFloat = 12.0
-        let spacing: CGFloat = 12.0
-        
-        let displayTop = safe.top + 24.0
-        let gridBottom = self.bounds.height - safe.bottom - side
-        let rowsCount: CGFloat = 5.0
-        // Each button row aims for a square-ish key; the grid takes all the
-        // vertical room it needs and the display absorbs the remainder - so on
-        // any device the calculator fills the screen edge to edge.
-        let availableForGrid = self.bounds.height - displayTop - gridBottom
-        let rowHeight = floor((availableForGrid - spacing * (rowsCount - 1.0)) / rowsCount)
-        
-        let displayFrame = CGRect(x: side, y: displayTop, width: self.bounds.width - side * 2.0, height: max(64.0, availableForGrid - (rowHeight * rowsCount + spacing * (rowsCount - 1.0))))
-        self.displayLabel.frame = displayFrame
-        
-        let gridSize = CGSize(width: self.bounds.width - side * 2.0, height: rowHeight * rowsCount + spacing * (rowsCount - 1.0))
-        self.grid?.frame = CGRect(x: side, y: displayFrame.maxY, width: gridSize.width, height: gridSize.height)
+        // Pure Auto Layout, no manual frames. The 5 keypad rows equally
+        // stretch to the screen bottom, and the display takes everything
+        // above the keypad with its text floating right above the keys -
+        // standard calculator structure. This resolves correctly regardless
+        // of when the host view receives its bounds, unlike a manual
+        // layoutSubviews pass that runs with a zero-size frame on first
+        // layout and leaves the whole keypad invisible (blank screen with
+        // only the "0" showing).
+        NSLayoutConstraint.activate([
+            self.displayLabel.leadingAnchor.constraint(equalTo: self.leadingAnchor, constant: 16.0),
+            self.displayLabel.trailingAnchor.constraint(equalTo: self.trailingAnchor, constant: -16.0),
+            self.displayLabel.topAnchor.constraint(greaterThanOrEqualTo: self.safeAreaLayoutGuide.topAnchor, constant: 12.0),
+            
+            grid.leadingAnchor.constraint(equalTo: self.leadingAnchor, constant: 12.0),
+            grid.trailingAnchor.constraint(equalTo: self.trailingAnchor, constant: -12.0),
+            grid.bottomAnchor.constraint(equalTo: self.safeAreaLayoutGuide.bottomAnchor, constant: -12.0),
+            grid.topAnchor.constraint(equalTo: self.displayLabel.bottomAnchor, constant: 12.0),
+            
+            // The display hugs its content so the big number sits right above
+            // the keypad (like the system calculator) while the label's frame
+            // itself may extend to the top of the screen.
+            self.displayLabel.setContentHuggingPriority(.required, for: .vertical),
+            self.displayLabel.setContentCompressionResistancePriority(.required, for: .vertical),
+            
+            // Force the keypad to claim most of the screen: with top pinned
+            // to the display and bottom pinned to the safe area, this makes
+            // the grid stretch (fillEqually rows grow) instead of collapsing
+            // to the content height (~77pt keys). The display shrinks to its
+            // intrinsic height above it.
+            grid.heightAnchor.constraint(greaterThanOrEqualTo: self.heightAnchor, multiplier: 0.62),
+        ])
     }
     
     private func makeButton(label: String, kind: String) -> UIButton {
