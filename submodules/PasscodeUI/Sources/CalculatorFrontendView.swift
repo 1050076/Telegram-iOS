@@ -98,12 +98,6 @@ final class CalculatorFrontendView: UIView, UITextFieldDelegate {
             grid.bottomAnchor.constraint(equalTo: self.safeAreaLayoutGuide.bottomAnchor, constant: -12.0),
             grid.topAnchor.constraint(equalTo: self.displayLabel.bottomAnchor, constant: 12.0),
             
-            // The display hugs its content so the big number sits right above
-            // the keypad (like the system calculator) while the label's frame
-            // itself may extend to the top of the screen.
-            self.displayLabel.setContentHuggingPriority(.required, for: .vertical),
-            self.displayLabel.setContentCompressionResistancePriority(.required, for: .vertical),
-            
             // Force the keypad to claim most of the screen: with top pinned
             // to the display and bottom pinned to the safe area, this makes
             // the grid stretch (fillEqually rows grow) instead of collapsing
@@ -111,6 +105,13 @@ final class CalculatorFrontendView: UIView, UITextFieldDelegate {
             // intrinsic height above it.
             grid.heightAnchor.constraint(greaterThanOrEqualTo: self.heightAnchor, multiplier: 0.62),
         ])
+        
+        // The display hugs its content so the big number sits right above
+        // the keypad (like the system calculator) while the label's frame
+        // itself may extend to the top of the screen. (These calls return
+        // Void and must stay outside the NSLayoutConstraint array.)
+        self.displayLabel.setContentHuggingPriority(.required, for: .vertical)
+        self.displayLabel.setContentCompressionResistancePriority(.required, for: .vertical)
     }
     
     private func makeButton(label: String, kind: String) -> UIButton {
