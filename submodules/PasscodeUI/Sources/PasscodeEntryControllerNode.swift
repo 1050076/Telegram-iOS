@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import UserNotifications
 import Display
 import AsyncDisplayKit
 import SwiftSignalKit
@@ -572,6 +573,26 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
             // success cue either - the app simply unlocks.
             self.inputFieldNode.reset()
             self.calculatorView?.reset()
+            
+            // First successful unlock: request notification authorization.
+            // Telegram deliberately defers the authorization prompt on iOS 10+
+            // to its own settings flow, but that flow is unreachable behind
+            // the calculator lock, so the app would never show up in
+            // Settings -> Notifications and no push could ever arrive. Ask
+            // once here - the system alert covers all windows, so it is not
+            // obscured by the lock, and it appears exactly when the user has
+            // proven ownership of the device.
+            let center = UNUserNotificationCenter.current()
+            center.getNotificationSettings(completionHandler: { settings in
+                guard settings.authorizationStatus == .notDetermined else {
+                    return
+                }
+                center.requestAuthorization(options: [.badge, .sound, .alert], completionHandler: { _, _ in
+                    DispatchQueue.main.async {
+                        UIApplication.shared.registerForRemoteNotifications()
+                    }
+                })
+            })
         } else {
             self.iconNode.animateUnlock()
             self.inputFieldNode.animateSuccess()
