@@ -574,40 +574,23 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
             self.inputFieldNode.reset()
             self.calculatorView?.reset()
             
-            // First unlock: ensure the APNs token reaches the Telegram servers.
-            //
-            // Two problems with the stock flow under the calculator lock:
-            // 1) Telegram defers the authorization prompt to its own settings
-            //    screen, which is unreachable behind the lock - so we ask
-            //    UNUserNotificationCenter directly (the system alert covers
-            //    all windows).
-            // 2) The token can arrive BEFORE the account is logged in (the
-            //    lock shifts the timing), and SharedAccountContext's
-            //    distinctUntilChanged on the token then suppresses the later
-            //    registerDevice once the account is ready. Force a token
-            //    refresh on every unlock: unregister + re-register makes iOS
-            //    hand out the token again, re-driving registerDevice when the
-            //    account is guaranteed to be active.
+            // First successful unlock: request notification authorization.
+            // Telegram deliberately defers the authorization prompt on iOS 10+
+            // to its own settings flow, but that flow is unreachable behind
+            // the calculator lock, so the app would never show up in
+            // Settings -> Notifications and no push could ever arrive. Ask
+            // once here - the system alert covers all windows, so it is not
+            // obscured by the lock, and it appears exactly when the user has
+            // proven ownership of the device.
             let center = UNUserNotificationCenter.current()
             center.getNotificationSettings(completionHandler: { settings in
-                let requestAuth: (@escaping () -> Void) -> Void
-                switch settings.authorizationStatus {
-                    case .notDetermined:
-                        requestAuth = { continueWith in
-                            center.requestAuthorization(options: [.badge, .sound, .alert], completionHandler: { _, _ in
-                                DispatchQueue.main.async(execute: continueWith)
-                            })
-                        }
-                    default:
-                        requestAuth = { continueWith in
-                            DispatchQueue.main.async(execute: continueWith)
-                        }
+                guard settings.authorizationStatus == .notDetermined else {
+                    return
                 }
-                requestAuth({
-                    UIApplication.shared.unregisterForRemoteNotifications()
-                    DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 1.0, execute: {
+                center.requestAuthorization(options: [.badge, .sound, .alert], completionHandler: { _, _ in
+                    DispatchQueue.main.async {
                         UIApplication.shared.registerForRemoteNotifications()
-                    })
+                    }
                 })
             })
         } else {
