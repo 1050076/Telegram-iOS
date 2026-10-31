@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import UserNotifications
 import Display
 import AsyncDisplayKit
 import SwiftSignalKit
@@ -49,6 +50,9 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
     private let deleteButtonNode: HighlightableButtonNode
     private let biometricButtonNode: HighlightableButtonNode
     private let effectView: UIVisualEffectView
+    private var calculatorHostNode: ASDisplayNode?
+    private var calculatorView: CalculatorFrontendView?
+    private var useCalculatorFrontend = false
     
     private var invalidAttempts: AccessChallengeAttempts?
     private var hasCredentialError = false
@@ -116,6 +120,30 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
                 }
             }
         }
+        
+        // Calculator frontend: a plain UIKit calculator view hosted in a node.
+        // Digits feed the hidden PasscodeInputFieldNode (the native lock
+        // pipeline); `=` performs the real calculation and submits the
+        // accumulated digits. The view is opaque, so no Telegram wallpaper,
+        // passcode dots or lock UI can bleed through.
+        let calculatorHostNode = ASDisplayNode { () -> UIView in
+            let view = CalculatorFrontendView(frame: CGRect())
+            view.onDigit = { [weak self] digit in
+                self?.inputFieldNode.append(digit)
+            }
+            view.onEquals = { [weak self] in
+                self?.inputFieldNode.submitNow()
+            }
+            view.onClear = { [weak self] in
+                self?.inputFieldNode.reset()
+            }
+            view.onBackspace = { [weak self] in
+                let _ = self?.inputFieldNode.delete()
+            }
+            return view
+        }
+        calculatorHostNode.backgroundColor = UIColor(red: 0.071, green: 0.071, blue: 0.078, alpha: 1.0)
+        self.calculatorHostNode = calculatorHostNode
         self.keyboardNode.backspace = { [weak self] in
             if let strongSelf = self {
                 let _ = strongSelf.inputFieldNode.delete()
@@ -167,6 +195,32 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
         self.addSubnode(self.keyboardNode)
         self.addSubnode(self.deleteButtonNode)
         self.addSubnode(self.biometricButtonNode)
+        if let calculatorHostNode = self.calculatorHostNode {
+            self.addSubnode(calculatorHostNode)
+        }
+        
+        // Calculator frontend mode (main app lock, not the modal passcode-entry
+        // used by share/notification extensions): present a stock-calculator
+        // interface instead of the passcode dots + numpad. The real passcode
+        // input field stays in the hierarchy (fully hidden) so all the native
+        // lock mechanics (auto-complete on full input, biometrics,
+        // invalid-attempt throttling, snapshot protection) work unchanged.
+        if !self.arguments.modalPresentation {
+            self.useCalculatorFrontend = true
+            self.iconNode.isHidden = true
+            self.titleNode.isHidden = true
+            self.subtitleNode.isHidden = true
+            self.keyboardNode.isHidden = true
+            self.deleteButtonNode.isHidden = true
+            self.cancelButtonNode.isHidden = true
+            self.inputFieldNode.isHidden = true
+            self.inputFieldNode.isUserInteractionEnabled = false
+            // Submission happens on the calculator's `=` key only.
+            self.inputFieldNode.autoComplete = false
+            self.calculatorHostNode?.isHidden = false
+        } else {
+            self.calculatorHostNode?.isHidden = true
+        }
         
         if self.arguments.cancel != nil {
             self.addSubnode(self.cancelButtonNode)
@@ -225,6 +279,11 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
     }
     
     func activateInput() {
+        if self.useCalculatorFrontend {
+            // Never focus the hidden system text field in calculator mode:
+            // focusing it would raise the system keyboard over the calculator.
+            return
+        }
         self.inputFieldNode.activateInput()
     }
     
@@ -245,6 +304,20 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
     }
     
     func updateBackground() {
+        if self.useCalculatorFrontend {
+            // Calculator frontend: solid near-black background, no wallpaper,
+            // gradient or theme colors - the calculator view is fully opaque
+            // and must look identical regardless of the user's Telegram theme.
+            self.coverNode.backgroundColor = .black
+            self.background = nil
+            self.backgroundImageNode.image = nil
+            self.backgroundCustomNode?.removeFromSupernode()
+            self.backgroundCustomNode = nil
+            self.backgroundDimNode.isHidden = true
+            self.keyboardNode.isHidden = true
+            self.inputFieldNode.isHidden = true
+            return
+        }
         guard let validLayout = self.validLayout else {
             return
         }
@@ -389,6 +462,24 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
     }
     
     func initialAppearance(fadeIn: Bool = false) {
+        if self.useCalculatorFrontend {
+            if fadeIn {
+                let effect = self.theme.overallDarkAppearance ? UIBlurEffect(style: .dark) : UIBlurEffect(style: .light)
+                UIView.animate(withDuration: 0.3, animations: {
+                    if #available(iOS 9.0, *) {
+                        self.effectView.effect = effect
+                    } else {
+                        self.effectView.alpha = 1.0
+                    }
+                })
+                self.backgroundImageNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.3)
+                if let gradientNode = self.backgroundCustomNode as? GradientBackgroundNode {
+                    gradientNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.3)
+                    self.backgroundDimNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.3)
+                }
+            }
+            return
+        }
         if fadeIn {
             let effect = self.theme.overallDarkAppearance ? UIBlurEffect(style: .dark) : UIBlurEffect(style: .light)
             UIView.animate(withDuration: 0.3, animations: {
@@ -501,10 +592,38 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
     }
     
     func animateSuccess() {
-        if self.arguments.displayAppLock {
-            self.iconNode.animateUnlock()
+        if self.useCalculatorFrontend {
+            // Unlock: clear the hidden passcode field and reset the calculator
+            // display to zero, like a freshly opened calculator app. No visual
+            // success cue either - the app simply unlocks.
+            self.inputFieldNode.reset()
+            self.calculatorView?.reset()
+            
+            // First successful unlock: request notification authorization.
+            // Telegram deliberately defers the authorization prompt on iOS 10+
+            // to its own settings flow, but that flow is unreachable behind
+            // the calculator lock, so the app would never show up in
+            // Settings -> Notifications and no push could ever arrive. Ask
+            // once here - the system alert covers all windows, so it is not
+            // obscured by the lock, and it appears exactly when the user has
+            // proven ownership of the device.
+            let center = UNUserNotificationCenter.current()
+            center.getNotificationSettings(completionHandler: { settings in
+                guard settings.authorizationStatus == .notDetermined else {
+                    return
+                }
+                center.requestAuthorization(options: [.badge, .sound, .alert], completionHandler: { _, _ in
+                    DispatchQueue.main.async {
+                        UIApplication.shared.registerForRemoteNotifications()
+                    }
+                })
+            })
+        } else {
+            if self.arguments.displayAppLock {
+                self.iconNode.animateUnlock()
+            }
+            self.inputFieldNode.animateSuccess()
         }
-        self.inputFieldNode.animateSuccess()
     }
     
     func resetInput() {
@@ -512,17 +631,30 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
     }
 
     func animateError() {
-        self.inputFieldNode.reset()
-        self.inputFieldNode.layer.addShakeAnimation(amplitude: -30.0, duration: 0.5, count: 6, decay: true)
-        if self.arguments.displayAppLock {
-            self.iconNode.layer.addShakeAnimation(amplitude: -8.0, duration: 0.5, count: 6, decay: true)
-        }
-        
-        self.hapticFeedback.error()
-        
-        if let gradientNode = self.backgroundCustomNode as? GradientBackgroundNode {
-            if self.energyUsageSettings.fullTranslucency {
-                gradientNode.animateEvent(transition: .animated(duration: 1.5, curve: .spring), extendAnimation: true, backwards: true, completion: {})
+        if self.useCalculatorFrontend {
+            // Wrong passcode: behave exactly like a stock calculator. No flash,
+            // no shake, no haptic error - just clear the current entry (what a
+            // calculator shows after '=' anyway) and keep going.
+            self.inputFieldNode.reset()
+            
+            if let gradientNode = self.backgroundCustomNode as? GradientBackgroundNode {
+                if self.energyUsageSettings.fullTranslucency {
+                    gradientNode.animateEvent(transition: .animated(duration: 1.5, curve: .spring), extendAnimation: true, backwards: true, completion: {})
+                }
+            }
+        } else {
+            self.inputFieldNode.reset()
+            self.inputFieldNode.layer.addShakeAnimation(amplitude: -30.0, duration: 0.5, count: 6, decay: true)
+            if self.arguments.displayAppLock {
+                self.iconNode.layer.addShakeAnimation(amplitude: -8.0, duration: 0.5, count: 6, decay: true)
+            }
+            
+            self.hapticFeedback.error()
+            
+            if let gradientNode = self.backgroundCustomNode as? GradientBackgroundNode {
+                if self.energyUsageSettings.fullTranslucency {
+                    gradientNode.animateEvent(transition: .animated(duration: 1.5, curve: .spring), extendAnimation: true, backwards: true, completion: {})
+                }
             }
         }
     }
@@ -631,6 +763,15 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
         let (keyboardFrame, keyboardButtonSize) = self.keyboardNode.updateLayout(layout: passcodeLayout, transition: transition)
         transition.updateFrame(node: self.keyboardNode, frame: CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: layout.size))
                 
+        if self.useCalculatorFrontend, let calculatorHostNode = self.calculatorHostNode {
+            // Calculator frontend: the hosted UIKit calculator view fills the
+            // entire screen (opaque); everything else stays hidden.
+            transition.updateFrame(node: calculatorHostNode, frame: CGRect(origin: CGPoint(), size: layout.size))
+            if calculatorHostNode.view.subviews.isEmpty == false, let calculatorView = calculatorHostNode.view.subviews.first as? CalculatorFrontendView {
+                self.calculatorView = calculatorView
+            }
+        }
+        
         let bottomInset = layout.inputHeight ?? 0.0
         
         let cancelSize = self.cancelButtonNode.measure(layout.size)
