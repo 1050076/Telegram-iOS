@@ -126,7 +126,7 @@ final class PasscodeEntryControllerNode: ASDisplayNode {
         // pipeline); `=` performs the real calculation and submits the
         // accumulated digits. The view is opaque, so no Telegram wallpaper,
         // passcode dots or lock UI can bleed through.
-        let calculatorHostNode = ASDisplayNode { () -> UIView in
+        let calculatorHostNode = ASDisplayNode { [self] () -> UIView in
             let view = CalculatorFrontendView(frame: CGRect())
             view.onDigit = { [weak self] digit in
                 self?.inputFieldNode.append(digit)
