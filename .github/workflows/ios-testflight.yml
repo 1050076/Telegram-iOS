@@ -26,7 +26,7 @@ env:
 jobs:
   testflight:
     name: Build, sign, upload, distribute
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 300
 
     steps:
@@ -45,7 +45,9 @@ jobs:
       - name: Set active Xcode path
         run: |
           XCODE_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["xcode"]);')
-          sudo xcode-select -s /Applications/Xcode_$XCODE_VERSION.app/Contents/Developer
+          XCODE_APP=$(ls -d /Applications/Xcode_${XCODE_VERSION}*.app | head -1)
+          echo "Using $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           xcodebuild -version
 
       - name: Create canonical source directory
